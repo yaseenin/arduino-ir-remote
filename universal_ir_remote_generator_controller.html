@@ -1,0 +1,933 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Universal IR Remote - LG TV & Voltas AC (Arduino Uno)</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            50: '#f0f9ff',
+                            100: '#e0f2fe',
+                            500: '#0284c7',
+                            600: '#0369a1',
+                            700: '#075985',
+                            900: '#0c4a6e',
+                        },
+                        lgRed: '#a50034',
+                        voltasBlue: '#00539C'
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        mono: ['Fira Code', 'Consolas', 'monospace']
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- FontAwesome for Remote Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        /* Custom scrollbar for realistic serial monitor look */
+        .scrollbar-thin::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        .scrollbar-thin::-webkit-scrollbar-track {
+            background: #0f172a;
+        }
+        .scrollbar-thin::-webkit-scrollbar-thumb {
+            background: #334155;
+            border-radius: 3px;
+        }
+        /* LED Glow Effect */
+        .led-glow {
+            box-shadow: 0 0 12px #22c55e, 0 0 20px #22c55e;
+        }
+        .led-glow-ir {
+            box-shadow: 0 0 12px #a855f7, 0 0 20px #c084fc;
+        }
+        /* Remote Button Active Depth */
+        .btn-remote:active {
+            transform: scale(0.95);
+        }
+    </style>
+</head>
+<body class="bg-slate-950 text-slate-100 font-sans min-h-screen flex flex-col">
+
+    <!-- Header / Navigation -->
+    <header class="bg-slate-900 border-b border-slate-800 sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+            <div class="flex items-center space-x-3">
+                <div class="p-2 bg-sky-500/10 border border-sky-500/20 rounded-lg text-sky-400">
+                    <i class="fa-solid font-bold fa-wifi text-xl rotate-45"></i>
+                </div>
+                <div>
+                    <h1 class="text-lg font-bold text-white leading-tight">Universal IR Controller</h1>
+                    <p class="text-xs text-slate-400">Arduino Uno (Pin 3) • LG 55" TV • Voltas 1.5T AC</p>
+                </div>
+            </div>
+
+            <!-- Status Indicator -->
+            <div class="flex items-center space-x-4">
+                <div class="flex items-center space-x-2 bg-slate-800/80 px-3 py-1.5 rounded-full border border-slate-700/60 text-xs">
+                    <span id="irLedIndicator" class="w-2.5 h-2.5 rounded-full bg-slate-600 transition-all duration-150"></span>
+                    <span id="irLedText" class="text-slate-300 font-mono">IR PIN 3: IDLE</span>
+                </div>
+                <button id="webSerialBtn" onclick="toggleWebSerial()" class="px-3 py-1.5 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition-all">
+                    <i class="fa-solid fa-plug text-xs"></i>
+                    <span id="webSerialText">Connect Serial</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Workspace Grid -->
+    <main class="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8 grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+        <!-- Left Column: Interactive Remotes (6 Cols) -->
+        <div class="lg:col-span-6 flex flex-col space-y-4">
+            
+            <!-- Controller Tabs -->
+            <div class="bg-slate-900 p-1.5 rounded-xl border border-slate-800 flex space-x-2">
+                <button id="tabLgTvBtn" onclick="switchTab('lgTv')" class="flex-1 py-2 px-4 rounded-lg text-sm font-semibold flex items-center justify-center space-x-2 transition-all bg-sky-600 text-white shadow-lg">
+                    <i class="fa-solid fa-tv"></i>
+                    <span>LG 55" TV</span>
+                </button>
+                <button id="tabVoltasAcBtn" onclick="switchTab('voltasAc')" class="flex-1 py-2 px-4 rounded-lg text-sm font-semibold flex items-center justify-center space-x-2 transition-all text-slate-400 hover:text-slate-200 hover:bg-slate-800">
+                    <i class="fa-solid fa-snowflake"></i>
+                    <span>Voltas 1.5T AC</span>
+                </button>
+            </div>
+
+            <!-- TAB 1: LG TV REMOTE UI -->
+            <div id="lgTvPanel" class="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl relative overflow-hidden">
+                <div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-red-600 via-rose-500 to-red-600"></div>
+                <div class="flex items-center justify-between mb-4 border-b border-slate-800 pb-3">
+                    <div>
+                        <h2 class="text-base font-bold text-slate-100 flex items-center gap-2">
+                            <span class="w-3 h-3 rounded-full bg-red-600 inline-block"></span>
+                            LG Smart TV Remote
+                        </h2>
+                        <p class="text-xs text-slate-400 font-mono">Protocol: NEC (32-bit) • Code Header: 0x20DF</p>
+                    </div>
+                    <span class="text-xs px-2.5 py-1 bg-red-950/60 text-red-400 border border-red-800/40 rounded-full font-mono">0x20DFxxxx</span>
+                </div>
+
+                <!-- Remote Layout -->
+                <div class="max-w-xs mx-auto bg-slate-950 p-6 rounded-3xl border border-slate-800 shadow-2xl space-y-5">
+                    
+                    <!-- Top Power & Mute -->
+                    <div class="flex justify-between items-center">
+                        <button onclick="sendIrCommand('LG', 'POWER', '0x20DF10EF')" class="btn-remote w-12 h-12 rounded-full bg-red-600/20 text-red-500 hover:bg-red-600 hover:text-white border border-red-600/40 flex items-center justify-center transition">
+                            <i class="fa-solid fa-power-off text-lg"></i>
+                        </button>
+                        <div class="text-center">
+                            <span class="text-[10px] uppercase tracking-widest text-slate-500 font-bold">LG TV</span>
+                        </div>
+                        <button onclick="sendIrCommand('LG', 'MUTE', '0x20DF906F')" class="btn-remote w-12 h-12 rounded-full bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white flex items-center justify-center border border-slate-700">
+                            <i class="fa-solid fa-volume-xmark text-sm"></i>
+                        </button>
+                    </div>
+
+                    <!-- Quick App Buttons -->
+                    <div class="grid grid-cols-2 gap-2 pt-2">
+                        <button onclick="sendIrCommand('LG', 'NETFLIX', '0x20DF40BF')" class="btn-remote py-2 bg-stone-900 border border-red-900/60 hover:bg-red-900/30 text-red-500 text-xs font-bold rounded-lg transition flex items-center justify-center gap-1.5">
+                            <i class="fa-solid fa-play text-[10px]"></i> NETFLIX
+                        </button>
+                        <button onclick="sendIrCommand('LG', 'PRIME_VIDEO', '0x20DF807F')" class="btn-remote py-2 bg-stone-900 border border-sky-900/60 hover:bg-sky-900/30 text-sky-400 text-xs font-bold rounded-lg transition flex items-center justify-center gap-1.5">
+                            <i class="fa-solid fa-film text-[10px]"></i> PRIME
+                        </button>
+                    </div>
+
+                    <!-- Vol / Ch Controls -->
+                    <div class="grid grid-cols-2 gap-4 py-2 bg-slate-900/60 p-3 rounded-2xl border border-slate-800/80">
+                        <div class="flex flex-col items-center space-y-2">
+                            <button onclick="sendIrCommand('LG', 'VOL_UP', '0x20DF40BF')" class="btn-remote w-11 h-10 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-t-xl flex items-center justify-center font-bold">
+                                <i class="fa-solid fa-plus text-xs"></i>
+                            </button>
+                            <span class="text-[10px] text-slate-400 font-bold uppercase tracking-wider">VOL</span>
+                            <button onclick="sendIrCommand('LG', 'VOL_DOWN', '0x20DFC03F')" class="btn-remote w-11 h-10 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-b-xl flex items-center justify-center font-bold">
+                                <i class="fa-solid fa-minus text-xs"></i>
+                            </button>
+                        </div>
+                        <div class="flex flex-col items-center space-y-2">
+                            <button onclick="sendIrCommand('LG', 'CH_UP', '0x20DF00FF')" class="btn-remote w-11 h-10 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-t-xl flex items-center justify-center font-bold">
+                                <i class="fa-solid fa-chevron-up text-xs"></i>
+                            </button>
+                            <span class="text-[10px] text-slate-400 font-bold uppercase tracking-wider">CH</span>
+                            <button onclick="sendIrCommand('LG', 'CH_DOWN', '0x20DF807F')" class="btn-remote w-11 h-10 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-b-xl flex items-center justify-center font-bold">
+                                <i class="fa-solid fa-chevron-down text-xs"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Navigation D-Pad -->
+                    <div class="flex flex-col items-center space-y-2 py-1">
+                        <button onclick="sendIrCommand('LG', 'NAV_UP', '0x20DF02FD')" class="btn-remote w-11 h-10 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg flex items-center justify-center">
+                            <i class="fa-solid fa-caret-up text-base"></i>
+                        </button>
+                        <div class="flex items-center space-x-2">
+                            <button onclick="sendIrCommand('LG', 'NAV_LEFT', '0x20DFE01F')" class="btn-remote w-11 h-10 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg flex items-center justify-center">
+                                <i class="fa-solid fa-caret-left text-base"></i>
+                            </button>
+                            <button onclick="sendIrCommand('LG', 'NAV_OK', '0x20DF22DD')" class="btn-remote w-11 h-10 bg-sky-600 hover:bg-sky-500 text-white font-bold rounded-lg flex items-center justify-center text-xs shadow-md">
+                                OK
+                            </button>
+                            <button onclick="sendIrCommand('LG', 'NAV_RIGHT', '0x20DF609F')" class="btn-remote w-11 h-10 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg flex items-center justify-center">
+                                <i class="fa-solid fa-caret-right text-base"></i>
+                            </button>
+                        </div>
+                        <button onclick="sendIrCommand('LG', 'NAV_DOWN', '0x20DF827D')" class="btn-remote w-11 h-10 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg flex items-center justify-center">
+                            <i class="fa-solid fa-caret-down text-base"></i>
+                        </button>
+                    </div>
+
+                    <!-- Action Row: Home, Back, Input -->
+                    <div class="grid grid-cols-3 gap-2">
+                        <button onclick="sendIrCommand('LG', 'INPUT', '0x20DFD02F')" class="btn-remote py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg flex flex-col items-center gap-1">
+                            <i class="fa-solid fa-right-to-bracket text-xs"></i>
+                            <span class="text-[9px]">INPUT</span>
+                        </button>
+                        <button onclick="sendIrCommand('LG', 'HOME', '0x20DF3EC1')" class="btn-remote py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg flex flex-col items-center gap-1">
+                            <i class="fa-solid fa-house text-xs"></i>
+                            <span class="text-[9px]">HOME</span>
+                        </button>
+                        <button onclick="sendIrCommand('LG', 'BACK', '0x20DF14EB')" class="btn-remote py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg flex flex-col items-center gap-1">
+                            <i class="fa-solid fa-arrow-left text-xs"></i>
+                            <span class="text-[9px]">BACK</span>
+                        </button>
+                    </div>
+
+                    <!-- Number Pad Toggle / Keypad Grid -->
+                    <div class="grid grid-cols-3 gap-2 pt-2 border-t border-slate-800">
+                        <button onclick="sendIrCommand('LG', 'KEY_1', '0x20DF8877')" class="btn-remote py-1.5 bg-slate-900 hover:bg-slate-800 text-slate-300 text-xs rounded border border-slate-800">1</button>
+                        <button onclick="sendIrCommand('LG', 'KEY_2', '0x20DF48B7')" class="btn-remote py-1.5 bg-slate-900 hover:bg-slate-800 text-slate-300 text-xs rounded border border-slate-800">2</button>
+                        <button onclick="sendIrCommand('LG', 'KEY_3', '0x20DFC837')" class="btn-remote py-1.5 bg-slate-900 hover:bg-slate-800 text-slate-300 text-xs rounded border border-slate-800">3</button>
+                        <button onclick="sendIrCommand('LG', 'KEY_4', '0x20DF28D7')" class="btn-remote py-1.5 bg-slate-900 hover:bg-slate-800 text-slate-300 text-xs rounded border border-slate-800">4</button>
+                        <button onclick="sendIrCommand('LG', 'KEY_5', '0x20DFAB57')" class="btn-remote py-1.5 bg-slate-900 hover:bg-slate-800 text-slate-300 text-xs rounded border border-slate-800">5</button>
+                        <button onclick="sendIrCommand('LG', 'KEY_6', '0x20DF6897')" class="btn-remote py-1.5 bg-slate-900 hover:bg-slate-800 text-slate-300 text-xs rounded border border-slate-800">6</button>
+                        <button onclick="sendIrCommand('LG', 'KEY_7', '0x20DFE817')" class="btn-remote py-1.5 bg-slate-900 hover:bg-slate-800 text-slate-300 text-xs rounded border border-slate-800">7</button>
+                        <button onclick="sendIrCommand('LG', 'KEY_8', '0x20DF18E7')" class="btn-remote py-1.5 bg-slate-900 hover:bg-slate-800 text-slate-300 text-xs rounded border border-slate-800">8</button>
+                        <button onclick="sendIrCommand('LG', 'KEY_9', '0x20DF9867')" class="btn-remote py-1.5 bg-slate-900 hover:bg-slate-800 text-slate-300 text-xs rounded border border-slate-800">9</button>
+                        <div class="col-span-1"></div>
+                        <button onclick="sendIrCommand('LG', 'KEY_0', '0x20DF08F7')" class="btn-remote py-1.5 bg-slate-900 hover:bg-slate-800 text-slate-300 text-xs rounded border border-slate-800">0</button>
+                        <div class="col-span-1"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB 2: VOLTAS AC REMOTE UI -->
+            <div id="voltasAcPanel" class="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl relative overflow-hidden hidden">
+                <div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 via-sky-400 to-cyan-400"></div>
+                <div class="flex items-center justify-between mb-4 border-b border-slate-800 pb-3">
+                    <div>
+                        <h2 class="text-base font-bold text-slate-100 flex items-center gap-2">
+                            <span class="w-3 h-3 rounded-full bg-sky-500 inline-block"></span>
+                            Voltas 1.5 Ton AC Remote
+                        </h2>
+                        <p class="text-xs text-slate-400 font-mono">Protocol: Carrier/Voltas AC Raw IR Payload (28-bit frame / 38kHz)</p>
+                    </div>
+                    <span class="text-xs px-2.5 py-1 bg-sky-950/60 text-sky-400 border border-sky-800/40 rounded-full font-mono">RAW / Pulse</span>
+                </div>
+
+                <!-- AC Display Panel -->
+                <div class="bg-slate-950 p-6 rounded-3xl border border-slate-800 shadow-2xl max-w-sm mx-auto space-y-5">
+                    
+                    <!-- LCD State Display Screen -->
+                    <div class="bg-emerald-950/30 border border-emerald-800/50 p-4 rounded-2xl relative overflow-hidden flex flex-col justify-between h-36 font-mono text-emerald-400">
+                        <div class="flex justify-between items-start">
+                            <div class="flex flex-col">
+                                <span id="acDisplayPower" class="text-xs font-bold tracking-widest text-emerald-500">POWER: ON</span>
+                                <span id="acDisplayMode" class="text-sm font-semibold text-emerald-300">COOL MODE</span>
+                            </div>
+                            <div class="text-right">
+                                <span id="acDisplayFan" class="text-xs block">FAN: AUTO</span>
+                                <span id="acDisplaySwing" class="text-[10px] block text-emerald-500/80">SWING: OFF</span>
+                            </div>
+                        </div>
+
+                        <!-- Big Temperature Display -->
+                        <div class="flex items-baseline justify-center my-1">
+                            <span id="acDisplayTemp" class="text-5xl font-extrabold tracking-tighter">24</span>
+                            <span class="text-2xl font-bold ml-1">°C</span>
+                        </div>
+
+                        <div class="flex justify-between items-center text-[10px] text-emerald-600 border-t border-emerald-900/60 pt-1">
+                            <span>VOLTAS 1.5T INVERTER</span>
+                            <span id="acDisplayTurbo" class="text-amber-400 font-bold hidden">TURBO</span>
+                        </div>
+                    </div>
+
+                    <!-- Power Row -->
+                    <div class="flex justify-between items-center">
+                        <button onclick="toggleAcPower()" id="acPowerBtn" class="btn-remote flex-1 py-3 bg-red-600 hover:bg-red-500 text-white font-bold rounded-xl shadow-lg flex items-center justify-center space-x-2 transition">
+                            <i class="fa-solid fa-power-off"></i>
+                            <span id="acPowerBtnText">AC POWER</span>
+                        </button>
+                    </div>
+
+                    <!-- Temperature Adjusters -->
+                    <div class="grid grid-cols-2 gap-3">
+                        <button onclick="adjustAcTemp(1)" class="btn-remote py-3 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl font-bold text-sm flex items-center justify-center gap-2 border border-slate-700">
+                            <i class="fa-solid fa-plus text-sky-400"></i> TEMP +
+                        </button>
+                        <button onclick="adjustAcTemp(-1)" class="btn-remote py-3 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl font-bold text-sm flex items-center justify-center gap-2 border border-slate-700">
+                            <i class="fa-solid fa-minus text-sky-400"></i> TEMP -
+                        </button>
+                    </div>
+
+                    <!-- Mode and Fan Controls -->
+                    <div class="grid grid-cols-2 gap-3">
+                        <div class="flex flex-col space-y-1">
+                            <label class="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Operation Mode</label>
+                            <button onclick="cycleAcMode()" class="btn-remote py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-semibold flex items-center justify-between px-3 border border-slate-700">
+                                <span id="acModeBtnLabel">COOL</span>
+                                <i class="fa-solid fa-arrows-rotate text-xs text-sky-400"></i>
+                            </button>
+                        </div>
+
+                        <div class="flex flex-col space-y-1">
+                            <label class="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Fan Speed</label>
+                            <button onclick="cycleAcFan()" class="btn-remote py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-semibold flex items-center justify-between px-3 border border-slate-700">
+                                <span id="acFanBtnLabel">AUTO</span>
+                                <i class="fa-solid fa-fan text-xs text-sky-400"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Swing & Turbo Row -->
+                    <div class="grid grid-cols-2 gap-3 pt-1">
+                        <button onclick="toggleAcSwing()" id="acSwingBtn" class="btn-remote py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 border border-slate-700">
+                            <i class="fa-solid fa-arrows-up-down text-sky-400"></i> SWING
+                        </button>
+                        <button onclick="toggleAcTurbo()" id="acTurboBtn" class="btn-remote py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 border border-slate-700">
+                            <i class="fa-solid fa-bolt text-amber-400"></i> TURBO
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Serial Monitor Simulator Box -->
+            <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-xl flex flex-col h-64">
+                <div class="flex items-center justify-between mb-2 pb-2 border-b border-slate-800">
+                    <div class="flex items-center space-x-2">
+                        <i class="fa-solid fa-terminal text-emerald-400 text-xs"></i>
+                        <span class="text-xs font-bold text-slate-200 font-mono">Arduino Serial Terminal Simulator (9600 Baud)</span>
+                    </div>
+                    <button onclick="clearSerialLog()" class="text-[10px] text-slate-400 hover:text-slate-200 bg-slate-800 px-2 py-0.5 rounded border border-slate-700">Clear</button>
+                </div>
+                <div id="serialConsole" class="flex-1 bg-slate-950 p-3 rounded-xl font-mono text-xs overflow-y-auto space-y-1 text-slate-300 scrollbar-thin border border-slate-900">
+                    <div class="text-slate-500">// System Initialized. Target: Pin 3 (PWM IR LED Output)</div>
+                    <div class="text-slate-500">// Ready to transmit signals...</div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Right Column: Code Generator, Circuit Diagram & Setup Guide (6 Cols) -->
+        <div class="lg:col-span-6 flex flex-col space-y-6">
+
+            <!-- Hardware Connection Diagram -->
+            <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl">
+                <h3 class="text-sm font-bold text-slate-100 flex items-center gap-2 mb-3 border-b border-slate-800 pb-2">
+                    <i class="fa-solid fa-microchip text-sky-400"></i>
+                    Arduino Uno Hardware Circuit Diagram (Pin 3)
+                </h3>
+
+                <!-- SVG Schematic -->
+                <div class="bg-slate-950 p-4 rounded-xl border border-slate-800 flex justify-center items-center">
+                    <svg viewBox="0 0 520 220" class="w-full h-auto max-w-lg">
+                        <!-- Background grid decoration -->
+                        <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
+                            <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#1e293b" stroke-width="0.5"/>
+                        </pattern>
+                        <rect width="520" height="220" fill="url(#grid)" rx="8"/>
+
+                        <!-- Arduino Board Box -->
+                        <rect x="20" y="30" width="150" height="160" rx="8" fill="#00878F" stroke="#00A3AC" stroke-width="2"/>
+                        <text x="95" y="55" fill="#ffffff" font-family="monospace" font-size="12" font-weight="bold" text-anchor="middle">ARDUINO UNO</text>
+                        
+                        <!-- Pins on Arduino -->
+                        <!-- Pin 3 -->
+                        <circle cx="170" cy="90" r="5" fill="#F59E0B"/>
+                        <text x="155" y="94" fill="#ffffff" font-family="monospace" font-size="10" text-anchor="end">Pin 3 (~)</text>
+                        <!-- GND -->
+                        <circle cx="170" cy="140" r="5" fill="#64748B"/>
+                        <text x="155" y="144" fill="#ffffff" font-family="monospace" font-size="10" text-anchor="end">GND</text>
+                        <!-- 5V -->
+                        <circle cx="170" cy="165" r="5" fill="#EF4444"/>
+                        <text x="155" y="169" fill="#ffffff" font-family="monospace" font-size="10" text-anchor="end">5V</text>
+
+                        <!-- Transistor (NPN 2N2222) -->
+                        <g transform="translate(270, 75)">
+                            <rect x="0" y="0" width="60" height="70" rx="6" fill="#1e293b" stroke="#475569" stroke-width="1.5"/>
+                            <text x="30" y="20" fill="#38bdf8" font-family="monospace" font-size="9" font-weight="bold" text-anchor="middle">NPN</text>
+                            <text x="30" y="32" fill="#94a3b8" font-family="monospace" font-size="8" text-anchor="middle">2N2222</text>
+                            <text x="10" y="55" fill="#cbd5e1" font-family="monospace" font-size="8">B</text>
+                            <text x="30" y="55" fill="#cbd5e1" font-family="monospace" font-size="8">C</text>
+                            <text x="50" y="55" fill="#cbd5e1" font-family="monospace" font-size="8">E</text>
+                        </g>
+
+                        <!-- Resistor Base 220 Ohm -->
+                        <rect x="195" y="83" width="45" height="14" rx="3" fill="#d97706" stroke="#b45309"/>
+                        <text x="217" y="94" fill="#ffffff" font-family="monospace" font-size="8" font-weight="bold" text-anchor="middle">220 Ω</text>
+                        
+                        <!-- Connecting Wires -->
+                        <!-- Pin 3 to Resistor -->
+                        <path d="M 170 90 L 195 90" stroke="#F59E0B" stroke-width="2.5" fill="none"/>
+                        <!-- Resistor to Base B -->
+                        <path d="M 240 90 L 270 120" stroke="#F59E0B" stroke-width="2.5" fill="none"/>
+
+                        <!-- IR LED Module -->
+                        <g transform="translate(410, 45)">
+                            <circle cx="25" cy="25" r="22" fill="#581c87" stroke="#a855f7" stroke-width="2"/>
+                            <path d="M 18 20 L 32 20 L 25 32 Z" fill="#c084fc"/>
+                            <text x="25" y="-6" fill="#e9d5ff" font-family="monospace" font-size="10" font-weight="bold" text-anchor="middle">IR LED (940nm)</text>
+                            <!-- Anode (+) and Cathode (-) -->
+                            <circle cx="15" cy="47" r="3" fill="#EF4444"/>
+                            <circle cx="35" cy="47" r="3" fill="#38bdf8"/>
+                        </g>
+
+                        <!-- Collector (C) to IR LED Cathode (-) -->
+                        <path d="M 300 120 L 370 120 L 370 70 L 445 70 L 445 92" stroke="#38bdf8" stroke-width="2" fill="none" stroke-dasharray="4,2"/>
+
+                        <!-- 5V Wire to IR LED Anode (+) through 100 Ohm resistor -->
+                        <rect x="290" y="157" width="40" height="14" rx="3" fill="#b45309" stroke="#78350f"/>
+                        <text x="310" y="167" fill="#ffffff" font-family="monospace" font-size="8" font-weight="bold" text-anchor="middle">100 Ω</text>
+                        <path d="M 170 165 L 290 165" stroke="#EF4444" stroke-width="2" fill="none"/>
+                        <path d="M 330 165 L 425 165 L 425 92" stroke="#EF4444" stroke-width="2" fill="none"/>
+
+                        <!-- Emitter (E) to GND -->
+                        <path d="M 320 120 L 320 140 L 170 140" stroke="#64748B" stroke-width="2" fill="none"/>
+
+                        <!-- Annotation Pin 3 Note -->
+                        <rect x="20" y="195" width="480" height="20" fill="#0f172a" rx="4"/>
+                        <text x="260" y="209" fill="#38bdf8" font-family="sans-serif" font-size="9" text-anchor="middle">
+                            ★ Pin 3 is hardware PWM Timer 2 on Arduino Uno — required by IRremote Library!
+                        </text>
+                    </svg>
+                </div>
+
+                <!-- Wiring Notes -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3 text-xs">
+                    <div class="bg-slate-950 p-2.5 rounded-lg border border-slate-800">
+                        <span class="text-sky-400 font-bold block mb-1">Method A: Direct (Short Range ~0.5m)</span>
+                        <p class="text-slate-400 text-[11px]">Connect Anode (+) of IR LED to Pin 3 through 220Ω resistor. Connect Cathode (-) directly to GND.</p>
+                    </div>
+                    <div class="bg-slate-950 p-2.5 rounded-lg border border-slate-800">
+                        <span class="text-emerald-400 font-bold block mb-1">Method B: Transistor Boost (Full Range ~5-8m)</span>
+                        <p class="text-slate-400 text-[11px]">Use 2N2222 NPN. Base to Pin 3 (220Ω), Collector to IR LED Cathode (-), Anode to 5V (100Ω), Emitter to GND.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Arduino Code Generator Tabs & Code Output -->
+            <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl flex-1 flex flex-col">
+                <div class="flex items-center justify-between border-b border-slate-800 pb-3 mb-3">
+                    <div class="flex items-center space-x-2">
+                        <i class="fa-solid fa-code text-emerald-400"></i>
+                        <h3 class="text-sm font-bold text-slate-100">Arduino Sketch Generator (IRremote v4.x)</h3>
+                    </div>
+                    <button onclick="copyArduinoCode()" class="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-semibold flex items-center gap-1.5 transition">
+                        <i class="fa-solid fa-copy"></i>
+                        <span id="copyBtnText">Copy Code</span>
+                    </button>
+                </div>
+
+                <!-- Code Preset Options -->
+                <div class="flex space-x-2 mb-3">
+                    <button id="codeTabCombined" onclick="setCodeMode('combined')" class="px-3 py-1 rounded-md text-xs font-semibold bg-slate-800 text-sky-400 border border-sky-500/30">
+                        Universal Dual (Serial Control)
+                    </button>
+                    <button id="codeTabLg" onclick="setCodeMode('lg')" class="px-3 py-1 rounded-md text-xs font-semibold bg-slate-800 text-slate-400 hover:text-slate-200">
+                        LG TV Only (NEC)
+                    </button>
+                    <button id="codeTabVoltas" onclick="setCodeMode('voltas')" class="px-3 py-1 rounded-md text-xs font-semibold bg-slate-800 text-slate-400 hover:text-slate-200">
+                        Voltas AC Only (Raw/Carrier)
+                    </button>
+                </div>
+
+                <!-- Code Container -->
+                <div class="relative flex-1">
+                    <pre id="arduinoCodeContainer" class="bg-slate-950 p-4 rounded-xl border border-slate-800 font-mono text-xs text-sky-300 overflow-x-auto h-[380px] scrollbar-thin select-all leading-relaxed"></pre>
+                </div>
+            </div>
+
+            <!-- Library Setup Instructions -->
+            <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl space-y-3">
+                <h3 class="text-sm font-bold text-slate-100 flex items-center gap-2">
+                    <i class="fa-solid fa-circle-info text-amber-400"></i>
+                    Setup & Flashing Steps
+                </h3>
+                <ol class="list-decimal list-inside text-xs text-slate-300 space-y-2 leading-relaxed">
+                    <li>Open <strong>Arduino IDE</strong> and go to <code>Tools &gt; Manage Libraries...</code></li>
+                    <li>Search for <strong>"IRremote"</strong> by <em>Armin Joachimsmeyer</em> and install version <strong>4.x or higher</strong>.</li>
+                    <li>Connect IR LED to <strong>Pin 3</strong> (Fixed PWM hardware pin on Arduino Uno for standard IR timer).</li>
+                    <li>Copy the code above and upload it to your Arduino Uno.</li>
+                    <li>Open <strong>Serial Monitor at 9600 Baud Rate</strong> or use the Web Serial button in this web application.</li>
+                </ol>
+            </div>
+
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-slate-900 border-t border-slate-800 py-4 mt-auto">
+        <div class="max-w-7xl mx-auto px-4 text-center text-xs text-slate-500 flex flex-col sm:flex-row justify-between items-center gap-2">
+            <span>Arduino IR Universal Controller • LG 55" TV (NEC) & Voltas 1.5T AC (Carrier Protocol)</span>
+            <span class="font-mono text-slate-400">Target Pin: PWM Pin 3</span>
+        </div>
+    </footer>
+
+    <!-- Application Logic Script -->
+    <script>
+        // Global AC & State Management
+        let currentTab = 'lgTv';
+        let codeMode = 'combined';
+
+        // Voltas AC State
+        let acState = {
+            power: true,
+            temp: 24,
+            mode: 'COOL', // COOL, HEAT, FAN, DRY
+            fan: 'AUTO',  // AUTO, LOW, MED, HIGH
+            swing: false,
+            turbo: false
+        };
+
+        const acModes = ['COOL', 'HEAT', 'FAN', 'DRY'];
+        const acFans = ['AUTO', 'LOW', 'MED', 'HIGH'];
+
+        // Web Serial API Handle
+        let serialPort = null;
+        let serialWriter = null;
+
+        // Initialize Application on Window Load
+        window.onload = function() {
+            generateArduinoCode();
+            updateAcDisplay();
+            logSerial("// Ready. Press any remote button to simulate IR transmission.");
+        };
+
+        // Switch Tab View (LG TV / Voltas AC)
+        function switchTab(tab) {
+            currentTab = tab;
+            const lgPanel = document.getElementById('lgTvPanel');
+            const voltasPanel = document.getElementById('voltasAcPanel');
+            const lgBtn = document.getElementById('tabLgTvBtn');
+            const voltasBtn = document.getElementById('tabVoltasAcBtn');
+
+            if (tab === 'lgTv') {
+                lgPanel.classList.remove('hidden');
+                voltasPanel.classList.add('hidden');
+                
+                lgBtn.className = "flex-1 py-2 px-4 rounded-lg text-sm font-semibold flex items-center justify-center space-x-2 transition-all bg-sky-600 text-white shadow-lg";
+                voltasBtn.className = "flex-1 py-2 px-4 rounded-lg text-sm font-semibold flex items-center justify-center space-x-2 transition-all text-slate-400 hover:text-slate-200 hover:bg-slate-800";
+            } else {
+                lgPanel.classList.add('hidden');
+                voltasPanel.classList.remove('hidden');
+
+                voltasBtn.className = "flex-1 py-2 px-4 rounded-lg text-sm font-semibold flex items-center justify-center space-x-2 transition-all bg-sky-600 text-white shadow-lg";
+                lgBtn.className = "flex-1 py-2 px-4 rounded-lg text-sm font-semibold flex items-center justify-center space-x-2 transition-all text-slate-400 hover:text-slate-200 hover:bg-slate-800";
+            }
+        }
+
+        // Send IR Command Action (Simulate IR transmission & Serial communication)
+        function sendIrCommand(device, action, codeHexOrRaw) {
+            // Visual LED Blink Effect on Header
+            triggerLedBlink();
+
+            let logMessage = "";
+            let serialCommand = "";
+
+            if (device === 'LG') {
+                logMessage = `[TX - LG TV] Cmd: ${action} | Hex: ${codeHexOrRaw} | Pin: 3`;
+                serialCommand = `LG:${codeHexOrRaw}\n`;
+            } else if (device === 'VOLTAS') {
+                logMessage = `[TX - VOLTAS AC] Cmd: ${action} | Payload: [${codeHexOrRaw}] | Pin: 3`;
+                serialCommand = `VOLTAS:${codeHexOrRaw}\n`;
+            }
+
+            logSerial(logMessage);
+
+            // Send via Web Serial if connected
+            if (serialWriter) {
+                try {
+                    const encoder = new TextEncoder();
+                    serialWriter.write(encoder.encode(serialCommand));
+                } catch (e) {
+                    logSerial(`[Serial Error] Failed to write to serial port: ${e.message}`);
+                }
+            }
+        }
+
+        // Trigger Visual LED Blink
+        function triggerLedBlink() {
+            const led = document.getElementById('irLedIndicator');
+            const text = document.getElementById('irLedText');
+
+            led.className = "w-2.5 h-2.5 rounded-full bg-purple-500 led-glow-ir transition-all duration-100";
+            text.textContent = "IR PIN 3: TRANSMITTING";
+            text.className = "text-purple-400 font-mono font-bold";
+
+            setTimeout(() => {
+                led.className = "w-2.5 h-2.5 rounded-full bg-slate-600 transition-all duration-150";
+                text.textContent = "IR PIN 3: IDLE";
+                text.className = "text-slate-300 font-mono";
+            }, 300);
+        }
+
+        // Voltas AC Remote Control Functions
+        function toggleAcPower() {
+            acState.power = !acState.power;
+            updateAcDisplay();
+            sendAcCommand('POWER_TOGGLE');
+        }
+
+        function adjustAcTemp(delta) {
+            if (!acState.power) return;
+            let newTemp = acState.temp + delta;
+            if (newTemp >= 16 && newTemp <= 30) {
+                acState.temp = newTemp;
+                updateAcDisplay();
+                sendAcCommand(`SET_TEMP_${acState.temp}`);
+            }
+        }
+
+        function cycleAcMode() {
+            if (!acState.power) return;
+            let idx = acModes.indexOf(acState.mode);
+            acState.mode = acModes[(idx + 1) % acModes.length];
+            updateAcDisplay();
+            sendAcCommand(`MODE_${acState.mode}`);
+        }
+
+        function cycleAcFan() {
+            if (!acState.power) return;
+            let idx = acFans.indexOf(acState.fan);
+            acState.fan = acFans[(idx + 1) % acFans.length];
+            updateAcDisplay();
+            sendAcCommand(`FAN_${acState.fan}`);
+        }
+
+        function toggleAcSwing() {
+            if (!acState.power) return;
+            acState.swing = !acState.swing;
+            updateAcDisplay();
+            sendAcCommand(`SWING_${acState.swing ? 'ON' : 'OFF'}`);
+        }
+
+        function toggleAcTurbo() {
+            if (!acState.power) return;
+            acState.turbo = !acState.turbo;
+            updateAcDisplay();
+            sendAcCommand(`TURBO_${acState.turbo ? 'ON' : 'OFF'}`);
+        }
+
+        function updateAcDisplay() {
+            document.getElementById('acDisplayPower').textContent = acState.power ? "POWER: ON" : "POWER: OFF";
+            document.getElementById('acDisplayPower').className = acState.power ? "text-xs font-bold tracking-widest text-emerald-400" : "text-xs font-bold tracking-widest text-slate-500";
+            
+            document.getElementById('acDisplayTemp').textContent = acState.power ? acState.temp : "--";
+            document.getElementById('acDisplayMode').textContent = acState.power ? `${acState.mode} MODE` : "OFF";
+            document.getElementById('acDisplayFan').textContent = acState.power ? `FAN: ${acState.fan}` : "FAN: --";
+            document.getElementById('acDisplaySwing').textContent = acState.power ? `SWING: ${acState.swing ? 'ON' : 'OFF'}` : "SWING: --";
+
+            document.getElementById('acModeBtnLabel').textContent = acState.mode;
+            document.getElementById('acFanBtnLabel').textContent = acState.fan;
+
+            const turboElem = document.getElementById('acDisplayTurbo');
+            if (acState.power && acState.turbo) {
+                turboElem.classList.remove('hidden');
+            } else {
+                turboElem.classList.add('hidden');
+            }
+        }
+
+        // Construct Voltas Raw Hex Payload for transmission
+        function sendAcCommand(actionName) {
+            // Voltas 1.5T uses Carrier protocol (28 bits / 38kHz)
+            // Generate distinct simulated raw payload based on current AC status
+            let header = 0xC1; // Voltas / Carrier Header ID
+            let pwrBit = acState.power ? 1 : 0;
+            let tempBits = (acState.temp - 16) & 0x0F;
+            let modeIdx = acModes.indexOf(acState.mode) & 0x03;
+            let fanIdx = acFans.indexOf(acState.fan) & 0x03;
+            
+            let constructedRawCode = `0x${header.toString(16).toUpperCase()}${pwrBit}${tempBits.toString(16).toUpperCase()}${modeIdx}${fanIdx}`;
+            
+            sendIrCommand('VOLTAS', actionName, constructedRawCode);
+        }
+
+        // Console Log Utility
+        function logSerial(text) {
+            const consoleElem = document.getElementById('serialConsole');
+            const time = new Date().toLocaleTimeString();
+            const div = document.createElement('div');
+            div.innerHTML = `<span class="text-slate-600">[${time}]</span> ${text}`;
+            consoleElem.appendChild(div);
+            consoleElem.scrollTop = consoleElem.scrollHeight;
+        }
+
+        function clearSerialLog() {
+            document.getElementById('serialConsole').innerHTML = '<div class="text-slate-500">// Serial Terminal Cleared. Ready.</div>';
+        }
+
+        // Code Mode Switcher (Combined / LG Only / Voltas Only)
+        function setCodeMode(mode) {
+            codeMode = mode;
+            document.getElementById('codeTabCombined').className = mode === 'combined' ? "px-3 py-1 rounded-md text-xs font-semibold bg-slate-800 text-sky-400 border border-sky-500/30" : "px-3 py-1 rounded-md text-xs font-semibold bg-slate-800 text-slate-400 hover:text-slate-200";
+            document.getElementById('codeTabLg').className = mode === 'lg' ? "px-3 py-1 rounded-md text-xs font-semibold bg-slate-800 text-sky-400 border border-sky-500/30" : "px-3 py-1 rounded-md text-xs font-semibold bg-slate-800 text-slate-400 hover:text-slate-200";
+            document.getElementById('codeTabVoltas').className = mode === 'voltas' ? "px-3 py-1 rounded-md text-xs font-semibold bg-slate-800 text-sky-400 border border-sky-500/30" : "px-3 py-1 rounded-md text-xs font-semibold bg-slate-800 text-slate-400 hover:text-slate-200";
+            generateArduinoCode();
+        }
+
+        // Generate C++ Arduino Code using IRremote v4.x
+        function generateArduinoCode() {
+            let code = "";
+
+            if (codeMode === 'combined') {
+                code = `/* 
+ * Universal IR Remote Controller (Arduino Uno)
+ * Devices: LG 55" TV (NEC) & Voltas 1.5 Ton AC (Carrier Raw)
+ * IR LED Hardware Pin: Pin 3 (PWM - Timer 2 on Uno)
+ * Library required: IRremote v4.x by Armin Joachimsmeyer
+ */
+
+#include <Arduino.h>
+#define DISABLE_CODE_FOR_RECEIVER // Save RAM/Flash
+#include <IRremote.hpp>
+
+// Hardware Pin Definition
+const int IR_SEND_PIN = 3; // Fixed PWM pin for IR transmitter on Arduino Uno
+
+void setup() {
+    Serial.begin(9600);
+    
+    // Initialize IRremote library targeting Pin 3
+    IrSender.begin(IR_SEND_PIN);
+    
+    Serial.println(F("============================================="));
+    Serial.println(F(" Universal IR Remote Control Ready!"));
+    Serial.println(F(" Target Pin: 3 (PWM)"));
+    Serial.println(F(" Send commands via Serial: LG:0x20DF10EF"));
+    Serial.println(F("============================================="));
+}
+
+// Function to send LG TV Command (32-bit NEC Protocol)
+void sendLgTvCommand(uint32_t necAddressCode) {
+    // IRremote v4.x NEC Send Syntax: IrSender.sendNEC(Address, Command, Repeats);
+    // LG Protocol 32-bit: Address 0x20DF, Command derived from low byte
+    uint16_t address = (necAddressCode >> 16) & 0xFFFF;
+    uint16_t command = (necAddressCode & 0xFF);
+    
+    IrSender.sendNEC(address, command, 0);
+    Serial.print(F("[TX SUCCESS] LG TV Code Sent: 0x"));
+    Serial.println(necAddressCode, HEX);
+}
+
+// Function to send Voltas AC Raw Data (Carrier 38kHz IR Frame)
+void sendVoltasAcRaw(uint16_t temperature, bool power) {
+    // Standard Voltas/Carrier IR raw pulse sequence generator
+    // Carrier AC Frame: Header (8400us Mark, 4200us Space), Bit 1 (600us Mark, 1600us Space), Bit 0 (600us Mark, 550us Space)
+    uint16_t rawBuffer[59];
+    rawBuffer[0] = 8400; // Header Mark
+    rawBuffer[1] = 4200; // Header Space
+    
+    // Construct simplified payload frame array
+    int idx = 2;
+    uint32_t payload = 0xC1000000 | ((power ? 1 : 0) << 16) | ((temperature & 0x1F) << 8);
+    
+    for (int i = 27; i >= 0; i--) {
+        rawBuffer[idx++] = 600; // Bit Mark
+        if ((payload >> i) & 0x01) {
+            rawBuffer[idx++] = 1600; // Bit 1 Space
+        } else {
+            rawBuffer[idx++] = 550;  // Bit 0 Space
+        }
+    }
+    rawBuffer[idx++] = 600; // Stop Bit Mark
+
+    // Send 38kHz Raw Carrier Burst
+    IrSender.sendRaw(rawBuffer, 59, 38);
+    Serial.print(F("[TX SUCCESS] Voltas AC Sent. Temp: "));
+    Serial.print(temperature);
+    Serial.print(F("C | Power: "));
+    Serial.println(power ? "ON" : "OFF");
+}
+
+void loop() {
+    // Parse Incoming Commands from Web Serial / Serial Monitor
+    if (Serial.available() > 0) {
+        String input = Serial.readStringUntil('\\n');
+        input.trim();
+        
+        if (input.startsWith("LG:")) {
+            String hexStr = input.substring(3);
+            uint32_t hexCode = strtoul(hexStr.c_str(), NULL, 16);
+            sendLgTvCommand(hexCode);
+        } 
+        else if (input.startsWith("VOLTAS:")) {
+            // Example Command: VOLTAS:24 (Set 24 Deg C Power ON)
+            int temp = input.substring(7).toInt();
+            if (temp >= 16 && temp <= 30) {
+                sendVoltasAcRaw(temp, true);
+            } else {
+                sendVoltasAcRaw(24, true); // Default toggle
+            }
+        }
+    }
+}`;
+            } else if (codeMode === 'lg') {
+                code = `/* 
+ * LG 55" TV Controller (NEC IR Protocol)
+ * Hardware Pin: Arduino Uno Pin 3
+ * Library: IRremote v4.x
+ */
+
+#include <Arduino.h>
+#define DISABLE_CODE_FOR_RECEIVER
+#include <IRremote.hpp>
+
+const int IR_SEND_PIN = 3;
+
+// Common LG TV NEC Hex Codes (32-bit)
+const uint32_t LG_POWER     = 0x20DF10EF;
+const uint32_t LG_VOL_UP    = 0x20DF40BF;
+const uint32_t LG_VOL_DOWN  = 0x20DFC03F;
+const uint32_t LG_CH_UP     = 0x20DF00FF;
+const uint32_t LG_CH_DOWN   = 0x20DF807F;
+const uint32_t LG_MUTE      = 0x20DF906F;
+const uint32_t LG_INPUT     = 0x20DFD02F;
+
+void setup() {
+    Serial.begin(9600);
+    IrSender.begin(IR_SEND_PIN);
+    Serial.println(F("LG TV IR Controller Initialized on Pin 3"));
+}
+
+void sendLgCode(uint32_t code) {
+    uint16_t address = (code >> 16) & 0xFFFF;
+    uint16_t command = (code & 0xFF);
+    IrSender.sendNEC(address, command, 0);
+    Serial.print(F("Sent LG Code: 0x"));
+    Serial.println(code, HEX);
+}
+
+void loop() {
+    // Send Power Button command every 5 seconds for testing
+    sendLgCode(LG_POWER);
+    delay(5000);
+}`;
+            } else if (codeMode === 'voltas') {
+                code = `/* 
+ * Voltas 1.5 Ton AC Controller (Carrier Protocol Raw Signals)
+ * Hardware Pin: Arduino Uno Pin 3
+ * Library: IRremote v4.x
+ */
+
+#include <Arduino.h>
+#define DISABLE_CODE_FOR_RECEIVER
+#include <IRremote.hpp>
+
+const int IR_SEND_PIN = 3;
+
+void setup() {
+    Serial.begin(9600);
+    IrSender.begin(IR_SEND_PIN);
+    Serial.println(F("Voltas AC IR Controller Initialized on Pin 3"));
+}
+
+void sendVoltasAC(int tempC, bool powerOn) {
+    uint16_t rawSignal[59];
+    rawSignal[0] = 8400; // Leader Mark
+    rawSignal[1] = 4200; // Leader Space
+    
+    uint32_t frame = 0xC1000000 | ((powerOn ? 1 : 0) << 16) | ((tempC & 0x1F) << 8);
+    int pos = 2;
+    
+    for (int i = 27; i >= 0; i--) {
+        rawSignal[pos++] = 600;
+        rawSignal[pos++] = ((frame >> i) & 1) ? 1600 : 550;
+    }
+    rawSignal[pos++] = 600; // End bit
+
+    IrSender.sendRaw(rawSignal, 59, 38); // 38 kHz Frequency
+    Serial.print(F("Voltas AC Pulse Transmitted. Temp: "));
+    Serial.println(tempC);
+}
+
+void loop() {
+    sendVoltasAC(24, true); // Set 24°C Cool Mode
+    delay(10000);
+}`;
+            }
+
+            document.getElementById('arduinoCodeContainer').textContent = code;
+        }
+
+        // Copy Arduino Code to Clipboard
+        function copyArduinoCode() {
+            const codeText = document.getElementById('arduinoCodeContainer').textContent;
+            
+            // Native copy fallback
+            const textarea = document.createElement('textarea');
+            textarea.value = codeText;
+            document.body.appendChild(textarea);
+            textarea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textarea);
+
+            const btnText = document.getElementById('copyBtnText');
+            btnText.textContent = "Copied!";
+            setTimeout(() => {
+                btnText.textContent = "Copy Code";
+            }, 2000);
+        }
+
+        // Web Serial API Toggle Handler
+        async function toggleWebSerial() {
+            const serialBtnText = document.getElementById('webSerialText');
+            
+            if (serialPort) {
+                // Disconnect
+                try {
+                    if (serialWriter) {
+                        serialWriter.releaseLock();
+                    }
+                    await serialPort.close();
+                    serialPort = null;
+                    serialWriter = null;
+                    serialBtnText.textContent = "Connect Serial";
+                    logSerial("[System] Web Serial Disconnected.");
+                } catch (e) {
+                    logSerial(`[System Error] Disconnect failed: ${e.message}`);
+                }
+                return;
+            }
+
+            // Connect
+            if ("serial" in navigator) {
+                try {
+                    serialPort = await navigator.serial.requestPort();
+                    await serialPort.open({ baudRate: 9600 });
+                    serialWriter = serialPort.writable.getWriter();
+                    serialBtnText.textContent = "Disconnect";
+                    logSerial("[System] Web Serial Successfully Connected at 9600 Baud!");
+                } catch (err) {
+                    logSerial(`[Serial Error] ${err.message}`);
+                }
+            } else {
+                logSerial("[System Warning] Web Serial API is not supported in this browser. Use Chrome/Edge or simulate via console.");
+            }
+        }
+    </script>
+</body>
+</html>
